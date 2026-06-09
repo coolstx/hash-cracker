@@ -33,28 +33,33 @@ def main():
     print(f"[*] Detected Algorithm: {algo}")
     print(f"[*] Using {args.threads} parallel processes.")
 
+    start_time = time.time()
+    found_password = None
+
     try:
         with open(args.wordlist, 'r', encoding='utf-8', errors='ignore') as f:
-            passwords = [line.strip() for line in f if line.strip()]
+            # Use a generator to save memory for large wordlists
+            def password_generator():
+                for line in f:
+                    p = line.strip()
+                    if p:
+                        yield (p, target_hash, algo)
+
+            print(f"[*] Starting attack...")
+            
+            with Pool(processes=args.threads) as pool:
+                # Using imap_unordered with a generator is memory efficient
+                for result in pool.imap_unordered(check_password, password_generator(), chunksize=1000):
+                    if result:
+                        found_password = result
+                        pool.terminate()
+                        break
     except FileNotFoundError:
         print(f"[-] Error: Wordlist file not found: {args.wordlist}")
         sys.exit(1)
-
-    print(f"[*] Loaded {len(passwords)} passwords. Starting attack...")
-    
-    start_time = time.time()
-    
-    # Prepare arguments for multiprocessing
-    worker_args = [(p, target_hash, algo) for p in passwords]
-
-    found_password = None
-    with Pool(processes=args.threads) as pool:
-        # Using imap_unordered for better performance on large lists
-        for result in pool.imap_unordered(check_password, worker_args, chunksize=1000):
-            if result:
-                found_password = result
-                pool.terminate() # Stop other processes immediately
-                break
+    except KeyboardInterrupt:
+        print("\n[!] Attack interrupted by user.")
+        sys.exit(0)
 
     duration = time.time() - start_time
 
